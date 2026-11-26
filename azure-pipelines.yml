@@ -14,7 +14,7 @@ pr:
       - "*"
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: ubuntu-24.04
 
 variables:
   # Docker sur les agents hébergés; LintSeulement pour un agent auto-hébergé sans Docker.
@@ -29,8 +29,16 @@ steps:
     inputs:
       versionSpec: "3.12"
 
+  - script: |
+      curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -o /tmp/packages-microsoft-prod.deb
+      sudo dpkg -i /tmp/packages-microsoft-prod.deb
+      sudo apt-get update -qq
+      sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
+    displayName: Installer ODBC Driver 18
+    condition: eq(variables['modeValidation'], 'Docker')
+
   - script: pip install -r requirements-dev.txt
-    displayName: Installer sqlfluff (version épinglée)
+    displayName: Installer les dépendances Python (versions épinglées)
 
   - pwsh: ./scripts/valider.ps1 -Mode $(modeValidation)
-    displayName: Valider (lint, personnalisations, hook, skills, Flyway, tests SQL)
+    displayName: Valider (lint, personnalisations, hook, skills, Flyway, SQL et Python)

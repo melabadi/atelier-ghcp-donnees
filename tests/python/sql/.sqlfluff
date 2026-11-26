@@ -1,0 +1,12 @@
+# Les ? restent des paramètres ODBC à l'exécution; valeurs uniquement pour le lint.
+[sqlfluff]
+templater = placeholder
+
+[sqlfluff:templater:placeholder]
+param_style = question_mark
+1 = 1
+2 = '2024-01-01'
+3 = 'CLI-001'
+4 = 'PRD-001'
+5 = '2'
+6 = '18.50'

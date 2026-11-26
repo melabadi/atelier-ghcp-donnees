@@ -18,7 +18,9 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Docker', 'Local', 'LintSeulement')]
-    [string]$Mode = 'Docker'
+    [string]$Mode = 'Docker',
+    [ValidateSet('Flyway', 'SqlcmdInitial')]
+    [string]$MethodeSchema = 'Flyway'
 )
 
 Set-StrictMode -Version Latest
@@ -43,11 +45,19 @@ $pwsh7 = Get-PremiereLigne 'pwsh' @('-NoProfile', '-Command', '$PSVersionTable.P
 $python = Get-PremiereLigne 'python3' @('--version')
 if (-not $python) { $python = Get-PremiereLigne 'python' @('--version') }
 $sqlfluff = Get-PremiereLigne 'sqlfluff' @('--version')
+if (-not $sqlfluff) {
+    $sqlfluff = Get-PremiereLigne 'python' @('-m', 'sqlfluff', '--version')
+    if (-not $sqlfluff) { $sqlfluff = Get-PremiereLigne 'python3' @('-m', 'sqlfluff', '--version') }
+}
 $dockerClient = Get-PremiereLigne 'docker' @('--version')
 $dockerDemon = if ($dockerClient) { Get-PremiereLigne 'docker' @('version', '--format', '{{.Server.Version}}') } else { $null }
 $flyway = Get-PremiereLigne 'flyway' @('-v')
 if ($flyway) { $flyway = ($flyway -replace '^.*?(Flyway)', '$1') }
 $sqlcmd = Get-PremiereLigne 'sqlcmd' @('-?')
+$pythonCommande = if (Get-Command python -ErrorAction SilentlyContinue) { 'python' } else { 'python3' }
+$pytest = Get-PremiereLigne $pythonCommande @('-m', 'pytest', '--version')
+$odbc = Get-PremiereLigne $pythonCommande @('-c',
+    "import pyodbc, os, sys; d=os.getenv('PYTEST_ODBC_DRIVER','ODBC Driver 18 for SQL Server'); print(d) if d in pyodbc.drivers() else sys.exit(1)")
 
 $verifications = @(
     [pscustomobject]@{ Outil = 'Git'; Version = (Get-PremiereLigne 'git' @('--version')); Requis = $true
@@ -59,9 +69,13 @@ $verifications = @(
         Conseil = 'Installez Python 3 : https://www.python.org/downloads/' }
     [pscustomobject]@{ Outil = 'sqlfluff'; Version = $sqlfluff; Requis = $true
         Conseil = 'pip install -r requirements-dev.txt' }
+    [pscustomobject]@{ Outil = 'pytest'; Version = $pytest; Requis = ($Mode -ne 'LintSeulement')
+        Conseil = 'python -m pip install -r requirements-dev.txt' }
+    [pscustomobject]@{ Outil = 'pyodbc + pilote SQL Server'; Version = $odbc; Requis = ($Mode -ne 'LintSeulement')
+        Conseil = 'Installer Microsoft ODBC Driver 18; ou définir PYTEST_ODBC_DRIVER pour un pilote 17 déjà installé' }
     [pscustomobject]@{ Outil = 'Docker (démon actif)'; Version = $(if ($dockerDemon) { "$dockerClient, démon $dockerDemon" }); Requis = ($Mode -eq 'Docker')
         Conseil = $(if ($dockerClient) { 'Démarrez Docker Desktop (le démon ne répond pas)' } else { 'Installez Docker, ou utilisez -Mode Local ou -Mode LintSeulement' }) }
-    [pscustomobject]@{ Outil = 'Flyway (CLI)'; Version = $flyway; Requis = ($Mode -eq 'Local')
+    [pscustomobject]@{ Outil = 'Flyway (CLI)'; Version = $flyway; Requis = ($Mode -eq 'Local' -and $MethodeSchema -eq 'Flyway')
         Conseil = $(if ($Mode -eq 'Docker') { 'Facultatif en mode Docker : l''image redgate/flyway est utilisée' } else { 'Installez Flyway Community : https://documentation.red-gate.com/fd' }) }
     [pscustomobject]@{ Outil = 'sqlcmd'; Version = $(if ($sqlcmd) { 'présent' }); Requis = ($Mode -eq 'Local')
         Conseil = 'Installez go-sqlcmd : https://learn.microsoft.com/sql/tools/sqlcmd/go-sqlcmd-utility' }
@@ -92,8 +106,10 @@ if ($pwsh7) { Write-Host 'Hook : PowerShell 7 présent, le hook de garde-fous pe
 else { Write-Host 'Hook : PowerShell 7 absent. Ne l''activez pas : un hook en échec refuserait tous les outils.' -ForegroundColor Yellow }
 
 if ($Mode -eq 'Local') {
-    Write-Host 'Mode Local : Flyway se connecte en TCP/IP (JDBC). Activez TCP/IP sur l''instance; pour une instance'
-    Write-Host 'nommée, indiquez un port explicite (SQL_SERVEUR=hote,port) ou démarrez le service SQL Server Browser.'
+    if ($MethodeSchema -eq 'Flyway') {
+        Write-Host 'Mode Local/Flyway : connexion TCP/IP (JDBC); faire configurer TCP/port par l''administrateur.'
+    }
+    else { Write-Host 'Mode Local/SqlcmdInitial : instantané sur une base neuve; mémoire partagée acceptée, aucun historique Flyway.' }
 }
 
 Write-Host ''
@@ -102,5 +118,5 @@ if ($manquants -gt 0) {
     if ($Mode -ne 'LintSeulement') { Write-Host 'Repli possible : pwsh ./scripts/valider.ps1 -Mode LintSeulement' }
     exit 1
 }
-Write-Host "Poste prêt pour : pwsh ./scripts/valider.ps1 -Mode $Mode" -ForegroundColor Green
+Write-Host "Poste prêt pour : pwsh ./scripts/valider.ps1 -Mode $Mode -MethodeSchema $MethodeSchema" -ForegroundColor Green
 exit 0

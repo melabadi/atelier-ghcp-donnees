@@ -1,5 +1,5 @@
 # Validation du dépôt : même script qu'en local et que dans Azure Pipelines.
-# Aucun artefact, aucun secret, aucun déploiement.
+# Mesures/plans facultatifs seulement; aucun secret, aucun déploiement.
 name: Validation
 
 on:
@@ -7,6 +7,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      performance:
+        description: Mesurer la latence et capturer le plan réel
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,7 +23,7 @@ concurrency:
 jobs:
   valider:
     name: valider.ps1 (Docker)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Récupérer le dépôt
@@ -29,9 +34,24 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Installer sqlfluff (version épinglée)
+      - name: Installer ODBC Driver 18
+        run: |
+          curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -o /tmp/packages-microsoft-prod.deb
+          sudo dpkg -i /tmp/packages-microsoft-prod.deb
+          sudo apt-get update -qq
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
+
+      - name: Installer les dépendances Python (versions épinglées)
         run: pip install -r requirements-dev.txt
 
-      - name: Valider (lint, personnalisations, hook, skills, Flyway, tests SQL)
+      - name: Valider (SQL et Python)
         shell: pwsh
-        run: ./scripts/valider.ps1 -Mode Docker
+        run: ./scripts/valider.ps1 -Mode Docker -PerformancePython:('${{ inputs.performance }}' -eq 'true')
+
+      - name: Conserver les mesures et les plans facultatifs
+        if: always() && inputs.performance
+        uses: actions/upload-artifact@v6
+        with:
+          name: resultats-python
+          path: resultats-python/
+          if-no-files-found: warn

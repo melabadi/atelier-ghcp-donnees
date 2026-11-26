@@ -37,6 +37,7 @@ Cette section peut être transmise telle quelle à l'équipe qui prépare les po
 | Docker ou SQL Server local | Requis pour la validation complète | Sinon `-Mode LintSeulement`; pré-télécharger l'image SQL Server la veille |
 | Flyway CLI Community ou image `redgate/flyway` | Requis pour la validation complète | Aucune licence |
 | Python 3 + sqlfluff | Recommandé | Requis en CI (`pip install -r requirements-dev.txt`) |
+| Python 3.10+ + pytest + pyodbc + Microsoft ODBC Driver 18 | Requis pour les tests Python réels | `python -m pip install -r requirements-dev.txt`; le pilote ODBC s'installe séparément. Pilote 17 existant : `PYTEST_ODBC_DRIVER=ODBC Driver 17 for SQL Server` |
 | sqlcmd (go-sqlcmd) | Pour `-Mode Local` | |
 | GitHub Copilot CLI | Optionnel | `winget install GitHub.Copilot`, `npm install -g @github/copilot` (Node.js 22+) ou catalogue interne; la politique GitHub Copilot CLI doit être activée dans l'organisation |
 | GitHub CLI ou Azure CLI (extension azure-devops) | Optionnel | Créer la PR depuis le terminal |
@@ -50,7 +51,7 @@ Organisation et projet Azure DevOps de démo avec deux ou trois éléments de tr
 
 ### CI
 
-GitHub Actions `ubuntu-latest` ou agent Azure Pipelines hébergé `ubuntu-latest` (Docker, PowerShell 7 et Python inclus). Agent auto-hébergé sans Docker : `-Mode LintSeulement`.
+GitHub Actions ou Azure Pipelines hébergé `ubuntu-24.04` (Docker, PowerShell 7 et Python inclus); les pipelines installent explicitement ODBC Driver 18 et les dépendances Python. Agent auto-hébergé sans Docker : `-Mode LintSeulement`.
 
 ### Vérifier un poste
 
@@ -214,12 +215,16 @@ La grille [docs/quand-utiliser-quoi.md](docs/quand-utiliser-quoi.md) croise chaq
 ├── donnees-exemple/                      Données fictives (environnements dev et ci seulement)
 ├── tests/
 │   ├── sql/                              Tests SQL (THROW si une attente échoue)
+│   ├── python/                           pytest, contrats réels et mesures facultatives; SQL séparé
+│   ├── local/                            Tests réels du provisionnement sans TCP
 │   ├── hooks/                            Fixtures du hook
 │   ├── skills/                           Tests des scripts de skills (-Simulation)
 │   └── fixtures/                         Réponses d'API enregistrées
 ├── scripts/
 │   ├── valider.ps1                       Validation unique, en local et en CI
 │   ├── verifier-poste.ps1                Vérification d'un poste, sans installation
+│   ├── provisionner-local.ps1            Base persistante locale pour MSSQL/SSMS
+│   ├── sql-server.ps1                    Configuration partagée et initialisation du schéma
 │   └── hooks/garde-fous.ps1              Script du hook
 ├── docs/
 │   ├── quand-utiliser-quoi.md            Grille des briques GHCP
@@ -244,12 +249,13 @@ pwsh ./scripts/valider.ps1 -Mode LintSeulement  # étapes 1 à 4, sans base de d
 
 | Étape | Contenu |
 | --- | --- |
-| 1 | Lint SQL avec sqlfluff (dialecte tsql) |
+| 1 | Lint SQL avec sqlfluff (dialecte tsql); paramètres ODBC des tests rendus uniquement pour le lint |
 | 2 | Personnalisations GHCP : en-têtes des skills et des agents, JSON des hooks, aucun `*.prompt.md` |
 | 3 | Tests du hook par fixtures (`tests/hooks/`) |
 | 4 | Tests des scripts de skills en `-Simulation` (`tests/skills/`) |
 | 5 | `flyway migrate` sur une base jetable |
 | 6 | Tests SQL (`tests/sql/`) |
+| 7 | Tests Python (`tests/python/`), sur la même base jetable réelle |
 
 Le mot de passe SQL Server du conteneur est généré à chaque exécution et n'est jamais affiché. Un outil absent donne `[IGNORE]` sur un poste et `[ECHEC]` en CI. Le code de sortie vaut 1 dès qu'une étape échoue.
 
@@ -257,9 +263,75 @@ Paramètres : `-ImageSqlServer` (par défaut `mcr.microsoft.com/mssql/server:202
 
 En `-Mode Local`, remplissez `SQL_SERVEUR` dans `.env`. Si `SQL_AUTHENTIFICATION` reste vide, le script choisit `sql` quand `SQL_UTILISATEUR` est rempli, sinon `windows`. Flyway se connecte par TCP : l'instance doit accepter les connexions TCP.
 
+### Tests Python sur SQL Server réel
+
+Ces tests sont des **tests de comportement isolés de procédure**, pas des tests unitaires sans moteur : aucune réponse SQL n'est simulée. Le validateur crée une base `brulerie_val_<identifiant>`, applique le schéma et les données, puis lance `python -m pytest tests/python -q -s --tb=short --contrat-relance doublons`. Chaque test écrit dans une transaction annulée; la procédure peut elle-même annuler cette transaction lors d'une erreur. La base est supprimée à la fin, même après un échec. Une base de démo ou une base sans marque de propriété est refusée par pytest.
+
+Cas vérifiés : conversions et montants exacts, résolution client/produit, paramètre `OUTPUT`, source vide, exclusions des lignes non convertibles/inconnues, propagation des erreurs de contrainte et annulation complète, contrat de relance.
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -c "import pyodbc; print(pyodbc.drivers())"
+
+# Poste SQL Express sans TCP : authentification Windows, pilote 17 déjà installé.
+$env:SQL_SERVEUR = '.\SQLEXPRESS'
+$env:SQL_AUTHENTIFICATION = 'windows'
+$env:PYTEST_ODBC_DRIVER = 'ODBC Driver 17 for SQL Server'
+pwsh .\scripts\verifier-poste.ps1 -Mode Local -MethodeSchema SqlcmdInitial
+pwsh .\scripts\valider.ps1 -Mode Local -MethodeSchema SqlcmdInitial
+
+# TCP configuré par l'administrateur : chemin Flyway habituel, recommandé pour les migrations.
+pwsh .\scripts\valider.ps1 -Mode Local
+```
+
+`SqlcmdInitial` est une **initialisation seulement** : fichiers `V<n>` triés numériquement, objets `R__` par nom, puis données d'exemple. Aucun historique Flyway n'est créé. Il ne remplace pas Flyway pour mettre une base à niveau; il exige une base neuve sans tables et ne s'active jamais automatiquement après un échec JDBC. Aucun changement TCP, service SQL Server ou SQL Server Browser n'est effectué.
+
+**Progression de l'atelier préservée** : sur `main` et jusqu'à `etape-3`, le deuxième appel insère encore les mêmes ventes (bogue ATL-2). Le contrat par défaut `doublons` vérifie ce comportement existant, sans le corriger. Après réalisation d'ATL-2 (ou après avoir reporté ces outils sur `etape-4`), utilisez `-ContratRelance idempotent`; cette option échoue volontairement sur `main` et exige zéro nouvelle insertion. Les outils ajoutés ne sont pas rétroportés automatiquement aux branches publiées. La vue mensuelle ATL-1 reste un sujet de `etape-3`; les tests Python ne l'exigent pas sur `main`.
+
+### Latence et plan réel (facultatifs)
+
+```powershell
+# En reprenant les variables de connexion ci-dessus :
+$env:PYTEST_LIGNES = '10000'             # 1 à 1000000
+$env:PYTEST_REPETITIONS = '20'           # au moins 5; plus 2 échauffements
+$env:PYTEST_RESULTATS = 'resultats-python'
+pwsh .\scripts\valider.ps1 -Mode Local -MethodeSchema SqlcmdInitial -PerformancePython
+
+# Budget explicite si l'équipe en a établi un sur cet environnement :
+$env:PYTEST_P95_MAX_MS = '500'
+pwsh .\scripts\valider.ps1 -Mode Local -MethodeSchema SqlcmdInitial -PerformancePython
+```
+
+Sans `PYTEST_P95_MAX_MS`, le scénario **mesure** sans verdict de latence. Avec un budget positif et fini, pytest échoue si le p95 le dépasse. Chaque répétition recharge une cible vide; remise à zéro, génération des données et capture du plan sont exclues du chronométrage. Le temps client comprend l'appel ODBC et la réception du paramètre de sortie; le cache est réchauffé, la connexion est réutilisée et une transaction externe est annulée. Ce n'est donc ni une mesure de connexion, ni une mesure de validation durable du journal, ni une preuve de débit de production.
+
+Chaque lancement conserve un dossier unique : `mesures.json` (échantillons, médiane, p95 par rang, version du moteur, volume, budget) et `chargement-*.sqlplan` ouvrables dans SSMS. L'analyse descriptive liste les opérateurs, lignes estimées, lignes réelles cumulées par thread, exécutions, avertissements et suggestions d'index. Les estimations sont par exécution : comparez-les aux lignes réelles en tenant compte du nombre d'exécutions. Aucun `Index Seek` n'est imposé; un scan peut être raisonnable selon les données. Les suggestions du moteur ne sont pas appliquées automatiquement.
+
+**Fait documenté** : `SET STATISTICS XML ON` exécute réellement la requête et retourne le plan avec ses compteurs; les permissions d'exécution et `SHOWPLAN` sont nécessaires sur les bases référencées ([Microsoft Learn](https://learn.microsoft.com/sql/t-sql/statements/set-statistics-xml-transact-sql?view=sql-server-ver17)). **Recommandation de l'atelier** : ajuster volume, distribution, concurrence et budget sur un environnement représentatif avant toute conclusion de performance. Aucun cache global ni réglage de l'instance n'est modifié.
+
+### Provisionner une base locale pour MSSQL/SSMS
+
+```powershell
+# Sans TCP, sur le poste SQL Express décrit ci-dessus :
+pwsh .\scripts\provisionner-local.ps1 -Serveur '.\SQLEXPRESS' -Base brulerie_demo_python -MethodeSchema SqlcmdInitial
+
+# Avec TCP : Flyway dev, schéma et données d'exemple idempotentes.
+pwsh .\scripts\provisionner-local.ps1 -Serveur 'localhost,1433' -Base brulerie_demo
+
+# Tests réels de sécurité du provisionnement; deux bases uniques nettoyées à la fin.
+pwsh .\tests\local\provisionnement.Tests.ps1 -Serveur '.\SQLEXPRESS'
+```
+
+Le nom doit commencer par `brulerie_demo`; seuls `.`, `(local)`, `localhost` et `127.0.0.1`, avec instance ou port facultatif, sont acceptés. Le compte doit pouvoir créer une base et ses objets. Les identifiants peuvent venir des variables `SQL_*` ou de `.env` lu par le script, jamais affiché. Ne copiez pas de secret dans une commande; `.env` reste ignoré par Git. La confiance au certificat est réservée à ces environnements locaux de démo.
+
+Une base préexistante non marquée est refusée, jamais adoptée, vidée ou supprimée. Les marques distinguent `Flyway` et `SqlcmdInitial` : impossible de passer de l'un à l'autre sur la même base via ce script. Pour un instantané natif, une relance vérifie l'empreinte des fichiers SQL sans les réappliquer ni remplacer les modifications faites dans SSMS. Si les fichiers changent ou si l'initialisation était partielle, choisissez un nouveau nom; la base existante reste disponible pour diagnostic. Pour Flyway, les migrations et les données répétables suivent `flyway.toml` (`dev`); une migration de données modifiée peut remplacer `stg`.
+
+Dans l'extension MSSQL de VS Code ou SSMS, connectez-vous à `.\SQLEXPRESS` en authentification Windows, puis choisissez `brulerie_demo_python`. `dw.client`, `dw.produit` et `stg.vente_brute` sont alimentées. Pour charger `dw.vente`, exécutez **une seule fois** `EXEC etl.usp_charger_ventes;` : sur `main`, une relance double les ventes par conception de l'atelier. Le provisionnement n'appelle pas cette procédure et ne supprime jamais sa base persistante.
+
 ### GitHub Actions
 
-`.github/workflows/validation.yml` s'exécute sur chaque PR et chaque poussée sur `main`, avec la seule permission `contents: read`. Aucun artefact, aucun secret, aucun déploiement.
+`.github/workflows/validation.yml` s'exécute sur chaque PR et chaque poussée sur `main`, avec la seule permission `contents: read`. Docker publie un port aléatoire sur `127.0.0.1`; pytest utilise ce port même lorsque Flyway s'exécute dans son image Docker. Les tests SQL existants sont conservés. Aucun secret externe ni déploiement.
+
+Lancement manuel avec l'entrée `performance=true` : mesures et plans facultatifs conservés comme artefact `resultats-python`, même en cas d'échec. Aucun budget universel n'est imposé en CI.
 
 ### Azure Pipelines (Azure Repos)
 
@@ -293,7 +365,9 @@ Les hooks sont en préversion dans VS Code; GitHub Copilot CLI sert de surface d
 | Le hook ne se déclenche pas | Fichier encore en `.disabled`, harness Local sélectionné, ancienne session, hooks bloqués par une politique | Renommez en `garde-fous.json`, choisissez le Copilot harness dans **Session Target**, ouvrez une nouvelle session; sinon faites la démo dans GitHub Copilot CLI |
 | Skills, agent ou hook absents dans VS Code | Harness Local encore sélectionné | Choisissez le Copilot harness dans le sélecteur **Session Target** de la vue Chat |
 | Tous les outils sont refusés | Hook actif sans PowerShell 7 (`pwsh` introuvable) | Renommez le hook en `.disabled`; installez PowerShell 7 avant de le réactiver |
-| `-Mode Local` : Flyway ne se connecte pas | Instance nommée sans TCP/IP ni SQL Server Browser | Activez TCP/IP pour l'instance et indiquez `hote,port` dans `SQL_SERVEUR`; sinon mode Docker |
+| `-Mode Local` : Flyway ne se connecte pas | Instance nommée sans TCP/IP ni SQL Server Browser | Faire configurer TCP/port par l'administrateur; sinon initialisation explicite `-MethodeSchema SqlcmdInitial` sur une base neuve, ou Docker |
+| `Pilote absent` dans pytest | pyodbc installé, mais pilote ODBC absent ou mauvais nom | Installer ODBC Driver 18 séparément ou définir `PYTEST_ODBC_DRIVER` au nom exact du pilote 17 installé |
+| Budget p95 dépassé | Volume, charge de l'instance ou budget inadapté | Consulter les échantillons et le plan conservés; ne pas conclure à une régression de production sur ce seul scénario |
 | `[IGNORE]` pour le skill `jira-ticket` | Attendu sur `main` : le script contient des `TODO-ATELIER` | Complétez-les (étape 2) ou passez sur `etape-2` |
 | Exécution de script refusée | Politique d'exécution de Windows PowerShell | `powershell -ExecutionPolicy Bypass -File ./scripts/valider.ps1` |
 
@@ -316,3 +390,6 @@ Les hooks sont en préversion dans VS Code; GitHub Copilot CLI sert de surface d
 - [Commentaires d'éléments de travail Azure DevOps](https://learn.microsoft.com/rest/api/azure/devops/wit/comments/add-work-item-comment?view=azure-devops-rest-7.1)
 - [API REST Jira Cloud v3](https://developer.atlassian.com/cloud/jira/platform/rest/v3/)
 - [Environnements Flyway](https://documentation.red-gate.com/flyway/reference/configuration/environments-namespace)
+- [Installer Microsoft ODBC Driver sur Linux](https://learn.microsoft.com/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server?view=sql-server-ver17)
+- [Plans réels avec STATISTICS XML et permissions](https://learn.microsoft.com/sql/t-sql/statements/set-statistics-xml-transact-sql?view=sql-server-ver17)
+- [Enregistrer et ouvrir un plan XML dans SSMS](https://learn.microsoft.com/sql/relational-databases/performance/save-an-execution-plan-in-xml-format?view=sql-server-ver17)

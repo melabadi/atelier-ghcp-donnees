@@ -10,10 +10,11 @@
       4. Tests des scripts de skills en -Simulation (tests/skills).
       5. flyway migrate sur une base jetable.
       6. Tests SQL (tests/sql/test_*.sql) avec sqlcmd, en arrêt sur erreur.
+      7. Tests Python (pytest), sur la même base jetable réelle.
 
     Modes :
       Docker        (défaut, utilisé en CI) : conteneur SQL Server jetable, supprimé à la fin.
-      Local         : instance SQL Server existante (paramètres dans .env), base jetable supprimée à la fin.
+      Local         : instance existante (.env), base jetable; Flyway ou instantané SqlcmdInitial explicite.
       LintSeulement : étapes 1 à 4 seulement, pour les postes ou agents sans Docker ni SQL Server.
 
     Un outil absent est signalé [IGNORE] sur un poste, mais [ECHEC] en CI
@@ -40,7 +41,15 @@ param(
     [string]$ImageFlyway = 'redgate/flyway:13',
 
     # Délai maximal d'attente du démarrage de SQL Server, en secondes.
-    [int]$DelaiAttenteSec = 180
+    [int]$DelaiAttenteSec = 180,
+
+    [switch]$PerformancePython,
+
+    [ValidateSet('Flyway', 'SqlcmdInitial')]
+    [string]$MethodeSchema = 'Flyway',
+
+    [ValidateSet('doublons', 'idempotent')]
+    [string]$ContratRelance = 'doublons'
 )
 
 Set-StrictMode -Version Latest
@@ -52,6 +61,7 @@ $moteurPowerShell = (Get-Process -Id $PID).Path
 $resultats = New-Object System.Collections.Generic.List[object]
 $identifiant = [guid]::NewGuid().ToString('N').Substring(0, 8)
 $nomBase = "brulerie_val_$identifiant"
+. (Join-Path $PSScriptRoot 'sql-server.ps1')
 
 try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { Write-Verbose 'Encodage console inchangé.' }
 
@@ -69,25 +79,6 @@ function Add-OutilAbsent {
     param([string]$Etape, [string]$Raison)
     if ($enCI) { Add-Resultat $Etape 'ECHEC' "$Raison (obligatoire en CI)" }
     else { Add-Resultat $Etape 'IGNORE' $Raison }
-}
-
-function Test-Commande {
-    param([string]$Nom)
-    return [bool](Get-Command $Nom -CommandType Application -ErrorAction SilentlyContinue)
-}
-
-# Exécute une commande externe sans que stderr ne devienne une erreur terminante (Windows PowerShell 5.1).
-function Invoke-Externe {
-    param([string]$Executable, [string[]]$Arguments, [switch]$Silencieux)
-    $preferencePrecedente = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        $sortie = & $Executable @Arguments 2>&1 | ForEach-Object { "$_" }
-        $code = $LASTEXITCODE
-    }
-    finally { $ErrorActionPreference = $preferencePrecedente }
-    if (-not $Silencieux -and $sortie) { $sortie | ForEach-Object { Write-Host "    $_" } }
-    return [pscustomobject]@{ Code = $code; Sortie = @($sortie) }
 }
 
 function Write-Titre {
@@ -117,21 +108,6 @@ function Read-EnTete {
         }
     }
     return $null
-}
-
-# Lit .env (CLE=valeur) sans écraser les variables déjà définies dans l'environnement.
-function Import-FichierEnv {
-    param([string]$Chemin)
-    if (-not (Test-Path -LiteralPath $Chemin)) { return }
-    foreach ($ligne in [IO.File]::ReadAllLines($Chemin, [Text.Encoding]::UTF8)) {
-        if ($ligne -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
-            $nom = $Matches[1]
-            $valeur = $Matches[2].Trim().Trim('"', "'")
-            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($nom)) -and $valeur) {
-                [Environment]::SetEnvironmentVariable($nom, $valeur)
-            }
-        }
-    }
 }
 
 # Lance un script PowerShell enfant avec le même moteur, en passant une entrée sur stdin.
@@ -185,9 +161,12 @@ function Invoke-EtapeLint {
     try {
         $arguments = @($commande | Select-Object -Skip 1) + @('lint') + $dossiers + @('--disable-progress-bar', '--nocolor')
         $resultat = Invoke-Externe $commande[0] $arguments
+        $argumentsPython = @($commande | Select-Object -Skip 1) +
+            @('lint', 'tests/python/sql', '--templater', 'placeholder', '--disable-progress-bar', '--nocolor')
+        $resultatPython = Invoke-Externe $commande[0] $argumentsPython
     }
     finally { Pop-Location }
-    if ($resultat.Code -eq 0) { Add-Resultat $etape 'OK' ("{0} dossier(s) analysé(s)" -f $dossiers.Count) }
+    if ($resultat.Code -eq 0 -and $resultatPython.Code -eq 0) { Add-Resultat $etape 'OK' ("{0} dossier(s) analysé(s)" -f ($dossiers.Count + 1)) }
     else { Add-Resultat $etape 'ECHEC' 'Violations sqlfluff : corrigez-les ou lancez sqlfluff fix' }
 }
 
@@ -327,27 +306,6 @@ function Get-FichiersTestsSql {
     return @(Get-ChildItem -LiteralPath (Join-Path $racine 'tests/sql') -Filter 'test_*.sql' -File | Sort-Object Name)
 }
 
-function Invoke-FlywayMigrate {
-    param([string]$Url, [string]$Utilisateur, [string]$MotDePasse, [string]$ReseauDocker)
-    $env:FLYWAY_URL = $Url
-    $env:SQL_UTILISATEUR = $Utilisateur
-    $env:SQL_MOT_DE_PASSE = $MotDePasse
-    $env:REDGATE_DISABLE_TELEMETRY = 'true'
-    if (Test-Commande 'flyway') {
-        Write-Host '    CLI Flyway locale'
-        $arguments = @("-configFiles=$(Join-Path $racine 'flyway.toml')", "-workingDirectory=$racine", '-environment=ci', 'migrate')
-        return (Invoke-Externe 'flyway' $arguments).Code
-    }
-    if ($ReseauDocker) {
-        Write-Host "    Image $ImageFlyway"
-        $arguments = @('run', '--rm', '--network', $ReseauDocker, '-v', "${racine}:/flyway/project:ro",
-            '-e', 'FLYWAY_URL', '-e', 'SQL_UTILISATEUR', '-e', 'SQL_MOT_DE_PASSE', '-e', 'REDGATE_DISABLE_TELEMETRY',
-            $ImageFlyway, '-configFiles=/flyway/project/flyway.toml', '-workingDirectory=/flyway/project', '-environment=ci', 'migrate')
-        return (Invoke-Externe 'docker' $arguments).Code
-    }
-    return $null
-}
-
 function Clear-VariablesSecretes {
     foreach ($nom in @('FLYWAY_URL', 'SQL_MOT_DE_PASSE', 'SQLCMDPASSWORD', 'MSSQL_SA_PASSWORD')) {
         Remove-Item -Path "env:$nom" -ErrorAction SilentlyContinue
@@ -374,14 +332,18 @@ function Invoke-ModeDocker {
     # Mot de passe généré pour ce conteneur seulement, jamais affiché.
     $motDePasse = 'Va1-' + [guid]::NewGuid().ToString('N').Substring(0, 20) + '!Z'
     $sqlcmd = $null
+    $reseauCree = $false
+    $conteneurCree = $false
     try {
         $env:MSSQL_SA_PASSWORD = $motDePasse
         $env:SQLCMDPASSWORD = $motDePasse
         if ((Invoke-Externe 'docker' @('network', 'create', $reseau) -Silencieux).Code -ne 0) { throw 'création du réseau Docker impossible' }
+        $reseauCree = $true
         Write-Host "    Démarrage de $ImageSqlServer"
         $demarrage = Invoke-Externe 'docker' @('run', '-d', '--name', $conteneur, '--network', $reseau,
             '-e', 'ACCEPT_EULA=Y', '-e', 'MSSQL_PID=Developer', '-e', 'MSSQL_SA_PASSWORD', '-p', '127.0.0.1::1433', $ImageSqlServer)
         if ($demarrage.Code -ne 0) { throw "démarrage du conteneur SQL Server impossible (image $ImageSqlServer)" }
+        $conteneurCree = $true
 
         $limite = (Get-Date).AddSeconds($DelaiAttenteSec)
         while (-not $sqlcmd -and (Get-Date) -lt $limite) {
@@ -414,6 +376,10 @@ function Invoke-ModeDocker {
         }
         Add-Resultat $etapeMigrate 'OK' 'migrations et données d''exemple appliquées'
 
+        $marque = Invoke-Externe 'docker' @('exec', '-e', 'SQLCMDPASSWORD', $conteneur, $sqlcmd,
+            '-S', 'localhost', '-U', 'sa', '-C', '-b', '-d', $nomBase, '-Q',
+            "EXEC sys.sp_addextendedproperty @name=N'atelier_tests', @value=N'$identifiant';")
+        if ($marque.Code -ne 0) { throw 'marquage de la base jetable impossible' }
         Write-Titre $etapeTests
         if ((Invoke-Externe 'docker' @('cp', (Join-Path $racine 'tests/sql'), "${conteneur}:/tmp/tests-sql") -Silencieux).Code -ne 0) { throw 'copie des tests SQL impossible' }
         $echecs = 0; $fichiers = Get-FichiersTestsSql
@@ -424,6 +390,8 @@ function Invoke-ModeDocker {
         }
         if ($echecs -eq 0) { Add-Resultat $etapeTests 'OK' "$($fichiers.Count) test(s)" }
         else { Add-Resultat $etapeTests 'ECHEC' "$echecs test(s) en échec sur $($fichiers.Count)" }
+        if (-not $port) { throw 'port Docker publié introuvable pour pytest' }
+        Invoke-EtapePython -Serveur "127.0.0.1,$port" -Authentification 'sql' -Utilisateur 'sa' -MotDePasse $motDePasse
     }
     catch {
         if (-not ($resultats | Where-Object { $_.Etape -eq $etapeMigrate })) {
@@ -434,29 +402,18 @@ function Invoke-ModeDocker {
     }
     finally {
         Write-Host '    Nettoyage du conteneur et du réseau'
-        Invoke-Externe 'docker' @('rm', '-f', '-v', $conteneur) -Silencieux | Out-Null
-        Invoke-Externe 'docker' @('network', 'rm', $reseau) -Silencieux | Out-Null
+        if ($conteneurCree -and (Invoke-Externe 'docker' @('rm', '-f', '-v', $conteneur)).Code -ne 0) {
+            Add-Resultat 'Nettoyage Docker' 'ECHEC' "conteneur restant : $conteneur"
+        }
+        if ($reseauCree -and (Invoke-Externe 'docker' @('network', 'rm', $reseau)).Code -ne 0) {
+            Add-Resultat 'Nettoyage Docker' 'ECHEC' "réseau restant : $reseau"
+        }
         Clear-VariablesSecretes
     }
 }
 
-# Convertit SQL_SERVEUR (hôte, hôte,port, hôte\instance) en URL JDBC.
-function ConvertTo-UrlJdbc {
-    param([string]$Serveur, [string]$Base, [bool]$Integree)
-    $hote = $Serveur; $port = $null; $instance = $null
-    if ($hote -match '^(.*),(\d+)$') { $hote = $Matches[1]; $port = $Matches[2] }
-    if ($hote -match '^(.*)\\(.+)$') { $hote = $Matches[1]; $instance = $Matches[2] }
-    if ($hote -in @('.', '(local)', '')) { $hote = 'localhost' }
-    $url = "jdbc:sqlserver://$hote"
-    if ($port) { $url += ":$port" }
-    $url += ";databaseName=$Base;encrypt=true;trustServerCertificate=true"
-    if ($instance -and -not $port) { $url += ";instanceName=$instance" }
-    if ($Integree) { $url += ';integratedSecurity=true' }
-    return $url
-}
-
 function Invoke-ModeLocal {
-    $etapeMigrate = '5. flyway migrate (Local)'
+    $etapeMigrate = "5. Schéma Local ($MethodeSchema)"
     $etapeTests = '6. Tests SQL (Local)'
     Write-Titre 'Mode Local : base jetable sur une instance existante'
     Import-FichierEnv (Join-Path $racine '.env')
@@ -478,7 +435,7 @@ function Invoke-ModeLocal {
         Add-Resultat $etapeTests 'IGNORE' "dépend de l'étape 5"
         return
     }
-    if (-not (Test-Commande 'flyway')) {
+    if ($MethodeSchema -eq 'Flyway' -and -not (Test-Commande 'flyway')) {
         Add-OutilAbsent $etapeMigrate 'CLI Flyway absente (requise en mode Local)'
         Add-Resultat $etapeTests 'IGNORE' "dépend de l'étape 5"
         return
@@ -501,7 +458,11 @@ function Invoke-ModeLocal {
         # Authentification intégrée : le pilote ignore l'utilisateur, mais le résolveur ${env.*} exige une valeur.
         $utilisateur = if ($integree) { 'authentification-integree' } else { $env:SQL_UTILISATEUR }
         $motDePasse = if ($integree) { 'authentification-integree' } else { $env:SQL_MOT_DE_PASSE }
-        $code = Invoke-FlywayMigrate -Url $url -Utilisateur $utilisateur -MotDePasse $motDePasse
+        if ($MethodeSchema -eq 'SqlcmdInitial') {
+            Invoke-SchemaInitialSqlcmd -Connexion $connexion -Base $nomBase
+            $code = 0
+        }
+        else { $code = Invoke-FlywayMigrate -Url $url -Utilisateur $utilisateur -MotDePasse $motDePasse }
         if ($code -ne 0) {
             Add-Resultat $etapeMigrate 'ECHEC' 'flyway migrate a échoué (TCP/IP activé sur l''instance? voir le dépannage du README)'
             Add-Resultat $etapeTests 'IGNORE' "dépend de l'étape 5"
@@ -509,6 +470,9 @@ function Invoke-ModeLocal {
         }
         Add-Resultat $etapeMigrate 'OK' 'migrations et données d''exemple appliquées'
 
+        $marque = Invoke-Externe 'sqlcmd' ($connexion + @('-d', $nomBase, '-Q',
+            "EXEC sys.sp_addextendedproperty @name=N'atelier_tests', @value=N'$identifiant';"))
+        if ($marque.Code -ne 0) { throw 'marquage de la base jetable impossible' }
         Write-Titre $etapeTests
         $echecs = 0; $fichiers = Get-FichiersTestsSql
         foreach ($fichier in $fichiers) {
@@ -518,6 +482,8 @@ function Invoke-ModeLocal {
         }
         if ($echecs -eq 0) { Add-Resultat $etapeTests 'OK' "$($fichiers.Count) test(s)" }
         else { Add-Resultat $etapeTests 'ECHEC' "$echecs test(s) en échec sur $($fichiers.Count)" }
+        Invoke-EtapePython -Serveur $serveur -Authentification $authentification `
+            -Utilisateur $env:SQL_UTILISATEUR -MotDePasse $env:SQL_MOT_DE_PASSE
     }
     catch {
         Add-Resultat $etapeMigrate 'ECHEC' $_.Exception.Message
@@ -526,7 +492,8 @@ function Invoke-ModeLocal {
     finally {
         if ($baseCreee) {
             Write-Host "    Suppression de $nomBase"
-            Invoke-Externe 'sqlcmd' ($connexion + @('-d', 'master', '-Q', "ALTER DATABASE [$nomBase] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$nomBase];")) -Silencieux | Out-Null
+            $nettoyage = Invoke-Externe 'sqlcmd' ($connexion + @('-d', 'master', '-Q', "ALTER DATABASE [$nomBase] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$nomBase];"))
+            if ($nettoyage.Code -ne 0) { Add-Resultat 'Nettoyage Local' 'ECHEC' "base jetable restante : $nomBase" }
         }
         Clear-VariablesSecretes
     }
@@ -534,7 +501,50 @@ function Invoke-ModeLocal {
 
 #endregion
 
+function Invoke-EtapePython {
+    param([string]$Serveur, [string]$Authentification, [string]$Utilisateur, [string]$MotDePasse)
+    $etape = '7. Tests Python (pytest)'
+    Write-Titre $etape
+    $python = $null
+    foreach ($candidat in @('python3', 'python')) {
+        if ((Test-Commande $candidat) -and
+            (Invoke-Externe $candidat @('-c', 'import pytest, pyodbc') -Silencieux).Code -eq 0) {
+            $python = $candidat; break
+        }
+    }
+    if (-not $python) {
+        Add-Resultat $etape 'ECHEC' 'Python/pytest/pyodbc absent : pip install -r requirements-dev.txt'
+        return
+    }
+    $env:PYTEST_SQL_SERVEUR = $Serveur
+    $env:PYTEST_SQL_BASE = $nomBase
+    $env:PYTEST_SQL_JETON = $identifiant
+    $env:PYTEST_SQL_AUTH = $Authentification
+    $env:PYTEST_SQL_USER = $Utilisateur
+    $env:PYTEST_SQL_PASSWORD = $MotDePasse
+    $encodagePrecedent = $env:PYTHONIOENCODING
+    $env:PYTHONIOENCODING = 'utf-8'
+    try {
+        $arguments = @('-m', 'pytest', (Join-Path $racine 'tests/python'), '-q', '-s', '--tb=short',
+            '--contrat-relance', $ContratRelance)
+        if ($PerformancePython) { $arguments += '--performance' }
+        $test = Invoke-Externe $python $arguments
+        if ($test.Code -eq 0) { Add-Resultat $etape 'OK' 'contrats vérifiés sur SQL Server réel' }
+        else { Add-Resultat $etape 'ECHEC' "pytest : code $($test.Code)" }
+    }
+    finally {
+        $env:PYTHONIOENCODING = $encodagePrecedent
+        foreach ($nom in @('PYTEST_SQL_SERVEUR', 'PYTEST_SQL_BASE', 'PYTEST_SQL_JETON',
+            'PYTEST_SQL_AUTH', 'PYTEST_SQL_USER', 'PYTEST_SQL_PASSWORD')) {
+            Remove-Item -Path "env:$nom" -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Write-Host "Validation du dépôt - mode $Mode$(if ($enCI) { ' (CI)' })"
+if ($MethodeSchema -eq 'SqlcmdInitial' -and $Mode -ne 'Local') {
+    throw '-MethodeSchema SqlcmdInitial est réservé au mode Local.'
+}
 
 Invoke-EtapeLint
 Invoke-EtapePersonnalisations
@@ -546,6 +556,7 @@ switch ($Mode) {
     'LintSeulement' {
         Add-Resultat '5. flyway migrate' 'IGNORE' 'mode LintSeulement'
         Add-Resultat '6. Tests SQL' 'IGNORE' 'mode LintSeulement'
+        Add-Resultat '7. Tests Python' 'IGNORE' 'mode LintSeulement (aucune connexion SQL)'
     }
 }
 
