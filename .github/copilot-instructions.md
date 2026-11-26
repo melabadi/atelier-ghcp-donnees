@@ -24,6 +24,15 @@ Ce dépôt est un petit projet SQL Server + Flyway pour une brûlerie de café f
 - Pas de `${` dans les fichiers SQL : Flyway l'interprète comme un paramètre de substitution.
 - Ne lisez jamais `.env` et n'affichez jamais de jeton; les scripts de skills lisent `.env` eux-mêmes.
 
+## Conventions de l'équipe (exemple de l'étape 1)
+
+Exemple de conventions propres à une équipe; remplacez-les par les vôtres.
+
+- L'en-tête de chaque fichier SQL indique le billet (`-- Billet    : ATL-n`); demandez la clé si elle est inconnue.
+- Vues `rpt` : pas de `ORDER BY`, pas de `SELECT *`; les montants agrégés sont convertis en `DECIMAL(18, 2)`; les périodes mensuelles s'appellent `annee_mois` (texte `AAAA-MM`).
+- Toute modification d'une procédure `etl` ajoute ou met à jour un test qui l'exécute deux fois de suite (relance après incident).
+- Avant de proposer une PR, faites relire les fichiers SQL modifiés par l'agent `relecteur-sql` et résumez ses remarques dans la description.
+
 ## Définition de « terminé »
 
 1. Migration (ou objet répétable) ajoutée dans `migrations/`.
