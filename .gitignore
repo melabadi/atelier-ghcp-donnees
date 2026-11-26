@@ -20,5 +20,8 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Hook activé pendant une démo ou une répétition : seul le .disabled est versionné
+.github/hooks/garde-fous.json
+
 # Paramètres locaux de GitHub Copilot CLI
 .github/copilot/settings.local.json

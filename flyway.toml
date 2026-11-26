@@ -1,0 +1,28 @@
+# Configuration Flyway (format TOML, Flyway Community)
+# Référence : environnements [environments.<nom>] et résolveur ${env.NOM}.
+# Les secrets ne sont jamais écrits ici : ils viennent des variables d'environnement.
+
+[flyway]
+# Emplacement par défaut : schéma seulement, sans données d'exemple
+locations = ["filesystem:migrations"]
+cleanDisabled = true
+validateMigrationNaming = true
+environment = "dev"
+
+# Poste de développement : instance SQL Server locale accessible en TCP
+[environments.dev]
+url = "jdbc:sqlserver://localhost:1433;databaseName=brulerie_demo;encrypt=true;trustServerCertificate=true"
+user = "${env.SQL_UTILISATEUR}"
+password = "${env.SQL_MOT_DE_PASSE}"
+
+[environments.dev.flyway]
+locations = ["filesystem:migrations", "filesystem:donnees-exemple"]
+
+# Validation (scripts/valider.ps1) : base jetable, URL construite par le script
+[environments.ci]
+url = "${env.FLYWAY_URL_CI}"
+user = "${env.SQL_UTILISATEUR}"
+password = "${env.SQL_MOT_DE_PASSE}"
+
+[environments.ci.flyway]
+locations = ["filesystem:migrations", "filesystem:donnees-exemple"]
