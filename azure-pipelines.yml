@@ -1,0 +1,36 @@
+# Validation du dépôt dans Azure Pipelines : mêmes étapes que GitHub Actions.
+# Avec Azure Repos, la validation des PR se configure par une stratégie de branche
+# (Branch policies > Build validation) qui pointe vers ce pipeline.
+# Aucun artefact publié, aucun déploiement.
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - "*"
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # Docker sur les agents hébergés; LintSeulement pour un agent auto-hébergé sans Docker.
+  - name: modeValidation
+    value: Docker
+
+steps:
+  - checkout: self
+
+  - task: UsePythonVersion@0
+    displayName: Installer Python
+    inputs:
+      versionSpec: "3.12"
+
+  - script: pip install -r requirements-dev.txt
+    displayName: Installer sqlfluff (version épinglée)
+
+  - pwsh: ./scripts/valider.ps1 -Mode $(modeValidation)
+    displayName: Valider (lint, personnalisations, hook, skills, Flyway, tests SQL)

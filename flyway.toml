@@ -18,9 +18,10 @@ password = "${env.SQL_MOT_DE_PASSE}"
 [environments.dev.flyway]
 locations = ["filesystem:migrations", "filesystem:donnees-exemple"]
 
-# Validation (scripts/valider.ps1) : base jetable, URL construite par le script
+# Validation (scripts/valider.ps1) : base jetable. Le script remplace cette URL
+# par la variable d'environnement FLYWAY_URL (hôte, port et nom de base uniques).
 [environments.ci]
-url = "${env.FLYWAY_URL_CI}"
+url = "jdbc:sqlserver://localhost:1433;databaseName=brulerie_ci;encrypt=true;trustServerCertificate=true"
 user = "${env.SQL_UTILISATEUR}"
 password = "${env.SQL_MOT_DE_PASSE}"
 
