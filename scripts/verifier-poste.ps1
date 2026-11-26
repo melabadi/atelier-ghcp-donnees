@@ -68,7 +68,7 @@ $verifications = @(
     [pscustomobject]@{ Outil = 'VS Code'; Version = (Get-PremiereLigne 'code' @('--version')); Requis = $true
         Conseil = 'Installez VS Code et l''extension GitHub Copilot Chat : https://code.visualstudio.com/' }
     [pscustomobject]@{ Outil = 'GitHub Copilot CLI'; Version = (Get-PremiereLigne 'copilot' @('--version')); Requis = $false
-        Conseil = 'Surface de repli pour la démo du hook : https://docs.github.com/copilot/how-tos/set-up/install-copilot-cli' }
+        Conseil = 'Surface de repli pour la démo du hook : https://docs.github.com/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli' }
 )
 
 Write-Host "Vérification du poste - mode de validation prévu : $Mode"
