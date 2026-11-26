@@ -1,0 +1,8 @@
+{
+  "description": "Ouverture de .env.example par view",
+  "attendu": "aucune",
+  "entree": {
+    "toolName": "view",
+    "toolArgs": "{\"path\":\".env.example\"}"
+  }
+}

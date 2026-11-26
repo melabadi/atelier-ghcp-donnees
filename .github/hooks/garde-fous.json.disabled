@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "pwsh -NoProfile -NonInteractive -File ./scripts/hooks/garde-fous.ps1",
+        "powershell": "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ./scripts/hooks/garde-fous.ps1",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "description": "DROP DATABASE dans une commande sqlcmd",
+  "attendu": "refus",
+  "entree": {
+    "toolName": "bash",
+    "toolArgs": "{\"command\":\"sqlcmd -S localhost -Q \\\"drop database brulerie_dev\\\"\"}"
+  }
+}

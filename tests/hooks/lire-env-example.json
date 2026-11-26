@@ -1,0 +1,8 @@
+{
+  "description": "Lecture de .env.example autorisée par défaut",
+  "attendu": "aucune",
+  "entree": {
+    "toolName": "bash",
+    "toolArgs": "{\"command\":\"Get-Content .env.example\"}"
+  }
+}

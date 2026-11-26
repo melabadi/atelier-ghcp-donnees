@@ -1,0 +1,8 @@
+{
+  "description": "DROP DATABASE dans le contenu d'un fichier édité (pas une commande)",
+  "attendu": "aucune",
+  "entree": {
+    "toolName": "edit",
+    "toolArgs": "{\"path\":\"docs/notes.md\",\"new_str\":\"Ne jamais lancer DROP DATABASE en production.\"}"
+  }
+}

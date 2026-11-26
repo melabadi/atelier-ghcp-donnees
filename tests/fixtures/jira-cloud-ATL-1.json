@@ -1,0 +1,33 @@
+{
+  "key": "ATL-1",
+  "fields": {
+    "summary": "Créer la vue rpt.v_ventes_mensuelles",
+    "issuetype": { "name": "Story" },
+    "status": { "name": "À faire" },
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "L'équipe de rapports veut le chiffre d'affaires et la quantité vendue par mois, par produit." }
+          ]
+        },
+        {
+          "type": "heading",
+          "attrs": { "level": 3 },
+          "content": [ { "type": "text", "text": "Critères d'acceptation" } ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "La vue rpt.v_ventes_mensuelles expose annee_mois, code_produit, quantite_totale et montant_total." } ] } ] },
+            { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Elle est créée dans une migration répétable avec CREATE OR ALTER." } ] } ] },
+            { "type": "listItem", "content": [ { "type": "paragraph", "content": [ { "type": "text", "text": "Un test SQL vérifie les totaux sur un jeu de données connu." } ] } ] }
+          ]
+        }
+      ]
+    }
+  }
+}

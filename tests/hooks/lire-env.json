@@ -1,0 +1,8 @@
+{
+  "description": "Lecture de .env par la commande de terminal (GitHub Copilot CLI)",
+  "attendu": "refus",
+  "entree": {
+    "toolName": "bash",
+    "toolArgs": "{\"command\":\"cat .env\"}"
+  }
+}

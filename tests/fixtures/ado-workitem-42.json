@@ -1,0 +1,11 @@
+{
+  "id": 42,
+  "rev": 3,
+  "fields": {
+    "System.WorkItemType": "User Story",
+    "System.Title": "Retirer un produit du catalogue sans perdre son historique de ventes",
+    "System.State": "Active",
+    "System.Description": "<div><p>Les produits discontinués doivent rester dans <b>dw.produit</b> pour que les ventes passées restent valides, mais ne plus apparaître dans les rapports du catalogue courant.</p></div>",
+    "Microsoft.VSTS.Common.AcceptanceCriteria": "<ul><li>Une colonne <code>est_actif</code> (BIT, NOT NULL, défaut 1) existe sur dw.produit.</li><li>Les produits existants restent actifs après la migration.</li><li>Un test SQL vérifie la valeur par défaut et qu&#39;un produit inactif garde ses ventes.</li><li>pwsh ./scripts/valider.ps1 est vert.</li></ul>"
+  }
+}

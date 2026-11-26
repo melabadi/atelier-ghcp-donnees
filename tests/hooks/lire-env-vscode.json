@@ -1,0 +1,12 @@
+{
+  "description": "Lecture de .env par read_file (format VS Code)",
+  "attendu": "refus",
+  "entree": {
+    "tool_name": "read_file",
+    "tool_input": {
+      "filePath": "/depot/.env",
+      "startLine": 1,
+      "endLine": 20
+    }
+  }
+}

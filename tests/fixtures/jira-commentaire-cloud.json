@@ -1,0 +1,10 @@
+{
+  "id": "10042",
+  "body": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+      { "type": "paragraph", "content": [ { "type": "text", "text": "Vue et test ajoutés; PR ouverte, CI verte." } ] }
+    ]
+  }
+}

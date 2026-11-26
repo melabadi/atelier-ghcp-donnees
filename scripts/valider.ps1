@@ -281,7 +281,7 @@ function Invoke-EtapeHook {
         else {
             try { $objet = $sortie | ConvertFrom-Json } catch { $objet = $null; $probleme = "sortie JSON invalide : $sortie" }
             if (-not $probleme) {
-                $proprietes = @($objet.PSObject.Properties.Name)
+                $proprietes = @($objet.PSObject.Properties | ForEach-Object { $_.Name })
                 $decision = if ($proprietes -contains 'permissionDecision') { $objet.permissionDecision } else { $null }
                 if ($decision -eq 'allow') { $probleme = 'le hook ne doit jamais répondre allow' }
                 elseif ($cas.attendu -eq 'refus') {

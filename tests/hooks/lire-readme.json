@@ -1,0 +1,8 @@
+{
+  "description": "Lecture du README",
+  "attendu": "aucune",
+  "entree": {
+    "toolName": "view",
+    "toolArgs": "{\"path\":\"README.md\"}"
+  }
+}

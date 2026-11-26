@@ -1,0 +1,8 @@
+{
+  "description": "flyway migrate reste autorisé par défaut",
+  "attendu": "aucune",
+  "entree": {
+    "toolName": "bash",
+    "toolArgs": "{\"command\":\"flyway -environment=dev migrate\"}"
+  }
+}

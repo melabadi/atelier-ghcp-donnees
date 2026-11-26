@@ -1,0 +1,8 @@
+{
+  "description": "flyway clean dans une commande",
+  "attendu": "refus",
+  "entree": {
+    "toolName": "powershell",
+    "toolArgs": "{\"command\":\"flyway -environment=dev clean\"}"
+  }
+}

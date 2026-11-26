@@ -1,0 +1,7 @@
+{
+  "workItemId": 42,
+  "id": 7,
+  "version": 1,
+  "text": "Migration et test ajoutés; PR ouverte, CI verte.",
+  "format": "markdown"
+}

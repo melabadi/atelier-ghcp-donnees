@@ -1,0 +1,5 @@
+{
+  "description": "Entrée JSON invalide : aucune décision",
+  "attendu": "aucune",
+  "entreeBrute": "{ceci n'est pas du JSON"
+}

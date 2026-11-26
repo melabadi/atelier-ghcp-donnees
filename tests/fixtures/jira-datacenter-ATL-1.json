@@ -1,0 +1,9 @@
+{
+  "key": "ATL-1",
+  "fields": {
+    "summary": "Créer la vue rpt.v_ventes_mensuelles",
+    "issuetype": { "name": "Story" },
+    "status": { "name": "À faire" },
+    "description": "L'équipe de rapports veut le chiffre d'affaires et la quantité vendue par mois, par produit.\r\n\r\nh3. Critères d'acceptation\r\n* La vue rpt.v_ventes_mensuelles expose annee_mois, code_produit, quantite_totale et montant_total.\r\n* Elle est créée dans une migration répétable avec CREATE OR ALTER.\r\n* Un test SQL vérifie les totaux sur un jeu de données connu."
+  }
+}

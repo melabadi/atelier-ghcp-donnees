@@ -1,0 +1,8 @@
+{
+  "description": "Lecture de .env par l'outil view (GitHub Copilot CLI)",
+  "attendu": "refus",
+  "entree": {
+    "toolName": "view",
+    "toolArgs": "{\"path\":\"C:\\\\depot\\\\.env\"}"
+  }
+}
