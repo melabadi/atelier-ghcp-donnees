@@ -2,6 +2,8 @@
 -- Objet     : charge les ventes de stg.vente_brute vers dw.vente.
 -- Règles    : conversion des types texte, résolution des clés client et produit;
 --             les lignes non convertibles ou sans client/produit connu sont ignorées.
+-- Idempotence (ATL-2) : une vente déjà présente dans dw.vente, reconnue par son numero_vente,
+--             n'est pas réinsérée; un deuxième appel renvoie 0.
 -- Retour    : nombre de lignes insérées (paramètre de sortie @nb_lignes_inserees).
 
 CREATE OR ALTER PROCEDURE etl.usp_charger_ventes
@@ -38,7 +40,12 @@ BEGIN
             s.numero_vente IS NOT NULL
             AND TRY_CONVERT(DATE, s.date_vente, 23) IS NOT NULL
             AND TRY_CONVERT(INT, s.quantite) IS NOT NULL
-            AND TRY_CONVERT(DECIMAL(10, 2), s.prix_unitaire) IS NOT NULL;
+            AND TRY_CONVERT(DECIMAL(10, 2), s.prix_unitaire) IS NOT NULL
+            AND NOT EXISTS (
+                SELECT 1
+                FROM dw.vente AS v
+                WHERE v.numero_vente = s.numero_vente
+            );
 
         SET @nb_lignes_inserees = @@ROWCOUNT;
 
