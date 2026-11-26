@@ -7,7 +7,7 @@ description: Lit un billet Jira (résumé, état, description) ou y ajoute un co
 
 Le script `jira-ticket.ps1` appelle l'API REST de Jira. Il lit lui-même `JIRA_URL`, `JIRA_DEPLOIEMENT`, `JIRA_COURRIEL` et `JIRA_JETON` dans `.env` : le jeton n'entre jamais dans la conversation. N'ouvrez pas `.env` et ne demandez jamais le jeton.
 
-> Atelier : sur `main`, trois fonctions du script sont marquées `# TODO-ATELIER` et restent à compléter. Leurs tests (`tests/skills/jira-ticket.Tests.ps1`) sont « en attente » tant qu'un marqueur subsiste. La branche `etape-2` contient la version complète.
+> Atelier : branche `etape-2`, version complète du script. Les trois fonctions marquées `# TODO-ATELIER` sur `main` y sont réalisées et les tests de simulation (`tests/skills/jira-ticket.Tests.ps1`) sont actifs.
 
 | Déploiement (`JIRA_DEPLOIEMENT`) | Authentification | API | Format des textes |
 | --- | --- | --- | --- |

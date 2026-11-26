@@ -80,36 +80,40 @@ function Get-StatutHttp {
     return 0
 }
 
-# Convertit un nœud Atlassian Document Format (ADF) en texte brut (Jira Cloud).
+# Convertit un nœud Atlassian Document Format (ADF) en texte brut.
 function ConvertFrom-Adf {
     param($Noeud)
-    # TODO-ATELIER 1/3 : parcourir l'arbre ADF de façon récursive et rendre du texte brut.
-    #   - Nœud absent : ''. Nœud déjà texte ([string]) : le rendre tel quel.
-    #   - type 'text' : rendre la propriété text. type 'hardBreak' : un saut de ligne.
-    #   - Autres types : concaténer la conversion de chaque enfant de la propriété content;
-    #     préfixer chaque 'listItem' par '- ' et terminer 'paragraph' et 'heading' par un saut de ligne.
-    #   - Utilisez Get-Propriete (StrictMode est actif). Exemple d'ADF : tests/fixtures/jira-cloud-ATL-1.json.
-    #   Référence : https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/
-    throw 'ConvertFrom-Adf est à compléter (TODO-ATELIER 1/3).'
+    if ($null -eq $Noeud) { return '' }
+    if ($Noeud -is [string]) { return $Noeud }
+    $type = [string](Get-Propriete $Noeud 'type')
+    if ($type -eq 'text') { return [string](Get-Propriete $Noeud 'text') }
+    if ($type -eq 'hardBreak') { return "`n" }
+    $enfants = @(Get-Propriete $Noeud 'content' | Where-Object { $null -ne $_ })
+    $morceaux = foreach ($enfant in $enfants) {
+        $texte = ConvertFrom-Adf $enfant
+        if ((Get-Propriete $enfant 'type') -eq 'listItem') { "- $($texte.Trim())`n" } else { $texte }
+    }
+    $resultat = -join $morceaux
+    if ($type -in @('paragraph', 'heading', 'codeBlock', 'blockquote')) { $resultat += "`n" }
+    return $resultat
 }
 
-# Construit un document ADF minimal : un paragraphe par ligne non vide (Jira Cloud).
+# Construit un document ADF minimal : un paragraphe par ligne non vide.
 function New-DocumentAdf {
     param([string]$Texte)
-    # TODO-ATELIER 2/3 : rendre une table de hachage de la forme
-    #   @{ type = 'doc'; version = 1; content = @( <un paragraphe par ligne non vide> ) }
-    #   où chaque paragraphe vaut @{ type = 'paragraph'; content = @(@{ type = 'text'; text = <ligne> }) }.
-    throw 'New-DocumentAdf est à compléter (TODO-ATELIER 2/3).'
+    $paragraphes = foreach ($ligne in ($Texte -split "`r?`n")) {
+        if ($ligne.Trim()) { @{ type = 'paragraph'; content = @(@{ type = 'text'; text = $ligne }) } }
+    }
+    return @{ type = 'doc'; version = 1; content = @($paragraphes) }
 }
 
-# Rend la version d'API et l'en-tête Authorization selon le déploiement.
 function Get-ConfigurationJira {
     param([string]$Deploiement)
-    # TODO-ATELIER 3/3 : rendre @{ Version = '...'; Authorization = '...' }.
-    #   - cloud      : Version '3'; 'Basic ' + Base64 UTF-8 de "<JIRA_COURRIEL>:<JIRA_JETON>".
-    #   - datacenter : Version '2'; 'Bearer ' + JIRA_JETON (jeton d'accès personnel).
-    #   N'affichez jamais l'en-tête ni le jeton, même pour déboguer.
-    throw 'Get-ConfigurationJira est à compléter (TODO-ATELIER 3/3).'
+    if ($Deploiement -eq 'cloud') {
+        $paire = '{0}:{1}' -f $env:JIRA_COURRIEL, $env:JIRA_JETON
+        return @{ Version = '3'; Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($paire)) }
+    }
+    return @{ Version = '2'; Authorization = "Bearer $($env:JIRA_JETON)" }
 }
 
 function Get-TexteChamp {
