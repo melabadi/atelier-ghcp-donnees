@@ -1,0 +1,23 @@
+[sqlfluff]
+dialect = tsql
+# templater raw : les jetons ${...} de Flyway restent du texte brut
+templater = raw
+max_line_length = 120
+# Fichiers SQL écrits en UTF-8
+encoding = utf-8
+
+[sqlfluff:indentation]
+indent_unit = space
+tab_space_size = 4
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = upper
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = upper

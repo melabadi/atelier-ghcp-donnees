@@ -1,0 +1,24 @@
+# Secrets locaux : ne jamais versionner
+.env
+.env.*
+!.env.example
+
+# Journaux et fichiers temporaires
+*.log
+journaux/
+logs/
+tmp/
+
+# Python
+__pycache__/
+.venv/
+venv/
+
+# Éditeurs et systèmes
+.vs/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Paramètres locaux de GitHub Copilot CLI
+.github/copilot/settings.local.json
